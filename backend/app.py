@@ -7,10 +7,12 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+import os
 
 import models
 from database import SessionLocal, engine
 
+# Create the database tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -26,6 +28,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # CORS configuration
 origins = [
     "http://localhost:3000",
+    "http://localhost:8000",
+    "https://adidaw-marketplace.com", # Placeholder for production domain
+    "*" # For development, allow all
 ]
 
 app.add_middleware(
@@ -132,7 +137,7 @@ class PasswordChange(BaseModel):
 # Routes
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {"Hello": "Adidaw Marketplace API"}
 
 # Auth Routes
 @app.post("/register", response_model=Token)
@@ -198,9 +203,76 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db), curren
     db.refresh(db_product)
     return db_product
 
-@app.get("/products/{product_id}", response_model=Product)
-def read_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return product
+
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_admin)):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(product)
+    db.commit()
+    return {"message": "Product deleted successfully"}
+
+# Upload Endpoint
+from fastapi import File, UploadFile
+import shutil
+from pathlib import Path
+
+# Setup upload directory in frontend/public/uploads
+UPLOAD_DIR = Path("../frontend/public/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.post("/upload")
+async def upload_image(file: UploadFile = File(...), current_user: models.User = Depends(get_current_admin)):
+    try:
+        # Create unique filename
+        filename = f"{datetime.now().timestamp()}_{file.filename}"
+        file_path = UPLOAD_DIR / filename
+        
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Return path relative to public folder (accessible by Next.js)
+        return {"url": f"/uploads/{filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Wishlist Endpoints
+@app.post("/wishlist/{product_id}")
+def add_to_wishlist(product_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Check if exists
+    exists = db.query(models.Wishlist).filter(
+        models.Wishlist.user_id == current_user.id,
+        models.Wishlist.product_id == product_id
+    ).first()
+    
+    if exists:
+        return {"message": "Already in wishlist"}
+        
+    item = models.Wishlist(user_id=current_user.id, product_id=product_id)
+    db.add(item)
+    db.commit()
+    return {"message": "Added to wishlist"}
+
+@app.delete("/wishlist/{product_id}")
+def remove_from_wishlist(product_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    item = db.query(models.Wishlist).filter(
+        models.Wishlist.user_id == current_user.id,
+        models.Wishlist.product_id == product_id
+    ).first()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not in wishlist")
+        
+    db.delete(item)
+    db.commit()
+    return {"message": "Removed from wishlist"}
+
+@app.get("/wishlist", response_model=List[Product])
+def get_wishlist(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Join Product and Wishlist
+    products = db.query(models.Product).join(models.Wishlist).filter(models.Wishlist.user_id == current_user.id).all()
+    return products

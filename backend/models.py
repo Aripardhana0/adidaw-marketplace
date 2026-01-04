@@ -23,3 +23,10 @@ class User(Base):
     role = Column(String, default="member")
     name = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
+
+class Wishlist(Base):
+    __tablename__ = "wishlist"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    product_id = Column(Integer, ForeignKey("products.id"))
