@@ -29,8 +29,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 origins = [
     "http://localhost:3000",
     "http://localhost:8000",
-    "https://adidaw-marketplace.com", # Placeholder for production domain
-    "*" # For development, allow all
+    "https://marketplace1.dionlinein.com",
+    "http://marketplace1.dionlinein.com",
+    "*" # Keep wildcard for testing, remove for strict production if needed
 ]
 
 app.add_middleware(
